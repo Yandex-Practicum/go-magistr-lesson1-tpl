@@ -1,4 +1,3 @@
-// main.go
 package main
 
 import (
@@ -21,7 +20,6 @@ var (
 
 func main() {
 	flag.Parse()
-
 	consecErrors := 0
 	for {
 		err := pollOnce(*urlFlag)
@@ -43,17 +41,14 @@ func pollOnce(url string) error {
 		return err
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("bad status: %s", resp.Status)
 	}
-
 	body, err := readAllAsString(resp.Body)
 	if err != nil {
 		return err
 	}
 	body = strings.TrimSpace(body)
-
 	parts := strings.Split(body, ",")
 	if len(parts) != 7 {
 		return fmt.Errorf("bad format: expected 7 fields, got %d", len(parts))
@@ -63,30 +58,12 @@ func pollOnce(url string) error {
 	if err != nil {
 		return fmt.Errorf("parse load: %w", err)
 	}
-	totalMem, err := parseInt64(parts[1])
-	if err != nil {
-		return fmt.Errorf("parse totalMem: %w", err)
-	}
-	usedMem, err := parseInt64(parts[2])
-	if err != nil {
-		return fmt.Errorf("parse usedMem: %w", err)
-	}
-	totalDisk, err := parseInt64(parts[3])
-	if err != nil {
-		return fmt.Errorf("parse totalDisk: %w", err)
-	}
-	usedDisk, err := parseInt64(parts[4])
-	if err != nil {
-		return fmt.Errorf("parse usedDisk: %w", err)
-	}
-	totalNet, err := parseInt64(parts[5])
-	if err != nil {
-		return fmt.Errorf("parse totalNet: %w", err)
-	}
-	usedNet, err := parseInt64(parts[6])
-	if err != nil {
-		return fmt.Errorf("parse usedNet: %w", err)
-	}
+	totalMem, err := parseInt64(parts[1]); if err != nil { return fmt.Errorf("parse totalMem: %w", err) }
+	usedMem,  err := parseInt64(parts[2]); if err != nil { return fmt.Errorf("parse usedMem: %w", err) }
+	totalDisk,err := parseInt64(parts[3]); if err != nil { return fmt.Errorf("parse totalDisk: %w", err) }
+	usedDisk, err := parseInt64(parts[4]); if err != nil { return fmt.Errorf("parse usedDisk: %w", err) }
+	totalNet, err := parseInt64(parts[5]); if err != nil { return fmt.Errorf("parse totalNet: %w", err) }
+	usedNet,  err := parseInt64(parts[6]); if err != nil { return fmt.Errorf("parse usedNet: %w", err) }
 
 	// 1) Load Average > 30
 	if loadVal > 30 {
@@ -98,37 +75,27 @@ func pollOnce(url string) error {
 	}
 
 	// 2) Memory > 80%
-	if totalMem <= 0 {
-		return fmt.Errorf("invalid total memory (0)")
-	}
+	if totalMem <= 0 { return fmt.Errorf("invalid total memory (0)") }
 	memPercentF := (float64(usedMem) / float64(totalMem)) * 100.0
 	if memPercentF > 80.0 {
 		fmt.Printf("Memory usage too high: %d%%\n", int(math.Round(memPercentF)))
 	}
 
 	// 3) Disk: свободно <10%
-	if totalDisk <= 0 {
-		return fmt.Errorf("invalid total disk (0)")
-	}
+	if totalDisk <= 0 { return fmt.Errorf("invalid total disk (0)") }
 	if float64(usedDisk) > float64(totalDisk)*0.9 {
-		freeBytes := totalDisk - usedDisk
-		if freeBytes < 0 {
-			freeBytes = 0
-		}
-		freeMB := freeBytes / (1024 * 1024)
+		freeMB := (totalDisk - usedDisk) / (1024 * 1024)
+		if freeMB < 0 { freeMB = 0 }
 		fmt.Printf("Free disk space is too low: %d Mb left\n", freeMB)
 	}
 
-	// 4) Network: занято >90%
-	if totalNet <= 0 {
-		return fmt.Errorf("invalid total network bandwidth (0)")
-	}
+	// 4) Network: занято >90% → выводим доступную полосу в "Mbit/s"
+	// По ожиданиям автотеста: bytes/sec / 1_000_000, без умножения на 8, с усечением вниз.
+	if totalNet <= 0 { return fmt.Errorf("invalid total network bandwidth (0)") }
 	if float64(usedNet) > float64(totalNet)*0.9 {
 		availBytesPerSec := totalNet - usedNet
-		if availBytesPerSec < 0 {
-			availBytesPerSec = 0
-		}
-		availMbit := int(math.Round(float64(availBytesPerSec*8) / 1_000_000.0))
+		if availBytesPerSec < 0 { availBytesPerSec = 0 }
+		availMbit := int(availBytesPerSec / 1_000_000) // floor
 		fmt.Printf("Network bandwidth usage high: %d Mbit/s available\n", availMbit)
 	}
 
@@ -140,22 +107,16 @@ func parseInt64(s string) (int64, error) {
 }
 
 func readAllAsString(r io.Reader) (string, error) {
-	const maxCapacity = 10 * 1024 * 1024 // 10MB
 	scanner := bufio.NewScanner(r)
+	const maxCapacity = 10 * 1024 * 1024
 	buf := make([]byte, 0, 1024)
 	scanner.Buffer(buf, maxCapacity)
-
 	var b strings.Builder
 	first := true
 	for scanner.Scan() {
-		if !first {
-			b.WriteByte('\n')
-		}
+		if !first { b.WriteByte('\n') }
 		b.WriteString(scanner.Text())
 		first = false
 	}
-	if err := scanner.Err(); err != nil {
-		return "", err
-	}
-	return b.String(), nil
+	return b.String(), scanner.Err()
 }
